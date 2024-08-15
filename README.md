@@ -1,7 +1,8 @@
 # ShapePlus
 Evaluation of pitch shapes - first step toward full pitcher evaluation.
 
-The specific goal of this project is to build a machine learning algorithm which grades pitches solely by their "shape" - that is, their physical characteristics. The overarching goal of this research is to develop a method of evaluating pitchers whillistically, which will hopefully include considerations not only of pitch shape, but also inter-repertoire interactions, command/control, and biomechanical efficiency.
+The specific goal of this project is to build a machine learning algorithm which grades pitches solely by their "shape" - that is, their physical characteristics. The overarching goal of this research is to develop a method of evaluating pitchers whollistically, which will hopefully include considerations not only of pitch shape, but also inter-repertoire interactions, command/control, and biomechanical efficiency.
+
 
 The following is a more in-depth explanation of this project.
 
