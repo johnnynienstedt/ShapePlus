@@ -29,7 +29,7 @@ In its current state, the model is trained separately for each pitch type; that 
 
 This required a separate mini-project to reclassify pitches, since MLB's pitch classification system leaves a lot to be desired. In my opinion, it is foolish to allow pitchers to classify their own pitches, because it can confuse fans and mislead analysis. Therefore, I created a system to classify each pitcher's pitches based purely on shape. However, this classification process DOES include full-repertoire considerations, because whether an 88mph breaking ball with +1" iVB and -3" HB is a cutter or a slider or a curveball depends on if your fastball is 90mph or 95mph or 100mph.
 
-I was not happy to do this, since I was trying to preserve repertoire independence, but there's really no way around it; if Emmanuel Clase's 92mph, +1" iVB, -7" HB pitch is called a cutter, what is his 100/+10/-3 pitch supposed to be called? Or, if we do call them a slider and a cutter, what is Calyton Kershaw's 87/+7/-5 suppsoed to be? Unfortunately, there's simply no getting around it. Even so, I am very satisfied with my classifications. I got a bit more creative with names so that it is more immediately obvious to the reader what types of pitches a pitcher truly throws. The pitch names are:
+I was not happy to do this, since I was trying to preserve repertoire independence, but there's really no way around it; if Emmanuel Clase's 92mph, +1" iVB, -7" HB pitch is called a cutter, what is his 100/+10/-3 pitch supposed to be called? Or, if we do call them a slider and a cutter, what is Calyton Kershaw's 87/+7/-5 suppsoed to be? Unfortunately, there's simply no getting around it. Fortunately, the pitch names have no bearing on the grading system. I got a bit more creative with names so that it is more immediately obvious to the reader what types of pitches a pitcher truly throws. The pitch names are:
 
   Riding Fastball
   Fastball
@@ -59,9 +59,23 @@ Originally I had not separated platoon matchups in the training of the model, so
 
 My next step is to run correlations of Shape+ to ERA, FIP, and other such metrics, and compare them to other similar pitch grading models. Remember, the goal is not to create a hugely predictive model on its own; the goal is to create a model that does its one job (grading pitch shapes) very well. Combining it will grades for command, repertoire, and deception will hopefully create a truly precdictive model.
 
-According to the current iteration of the model, the best pitch in baseball is Luke Jackson's gyro slider, coming in with a 134 Shape+ (3.4 standard deviations above the mean). Please do not look up his ERA.
+According to the current iteration of the model, the individual pitches with the best shape are:
+  - To same-handed hitters: German Marquez's gyro slider with a 137 Shape+, or 3.7 standard deviations above the mean.
+  - To opposite-handed hitters: Luke Jackson's gyro slider with a 133 Shape+, or 3.3 standard deviations above the mean.
 
+And the pitches with the worst shape are:
+  - To same-handed hitters: Miguel Diaz's riding fastball with a 69 Shape+, or 3.1 standard deviations below the mean.
+  - To opposite-handed hitters: Julio Teheran's twwo-plane slider with a 76 Shape+, or 2.4 standard deviations below the mean.
 
+As for pitchers as a whole, the owners of highest grading repertoires are:
+  - To same-handed hitters: Devin Williams, 122 Shape+
+  - To opposite-handed hitters: Luke Jackson, 118 Shape+
+
+And the lowest grading repertoires:
+  - To same-handed hitters: Zach Plesac, 84 Shape+
+  - To opposite-handed hitters: Kolby Allard, 89 Shape+
+
+We can already see two interesting trends here. First, the grading of a pitcher's repertoire is much more conservative than the grading of indivisual pitches. This is because the scaling process occurs at the pitcher-pitch level. So, when looking at Devin Williams' changeup and its 131 Shape+ vs righties, we can say that it grades out roughly three standard deviations above the 'average pitch.' When we look at his entire repertoire, we see that he has a 122 Shape+ vs righites, so we might be tempted to say that his repertoire grades out as 2.2 standard deviations above the 'average pitcher.' However, this is false; since no pitcher throws his best pitch (or his worst one) every single time, the grades tend to 'compress' towards 100 for full pithcer repertoires. I am debating whether to re-scale on the pitcher-level, to resolve this issue.
 
 
 
