@@ -77,7 +77,7 @@ And the lowest grading repertoires:
 
 We can already see two interesting trends here. First, the grading of a pitcher's repertoire is much more conservative than the grading of indivisual pitches. This is because the scaling process occurs at the pitcher-pitch level. So, when looking at Devin Williams' changeup and its 131 Shape+ vs righties, we can say that it grades out roughly three standard deviations above the 'average pitch.' When we look at his entire repertoire, we see that he has a 122 Shape+ vs righites, so we might be tempted to say that his repertoire grades out as 2.2 standard deviations above the 'average pitcher.' However, this is false; since no pitcher throws his best pitch (or his worst one) every single time, the grades tend to 'compress' towards 100 for full pithcer repertoires. I am debating whether to re-scale on the pitcher-level, to resolve this issue.
 
-
+The second notable trend is that the best pitches and pitchers are rated more positively than the worst are rated negatively. The two best pitches are rated an average of 3.5 standard deviations above the mean, while the two worst are rated an average of just 2.75 standard deviations below the mean. This implies that we have a positive skew to the data - that is, that the median Shape+ is lower than the mean, and that the mean is dragged upwards due to some truly exceptional pitches. In fact, for both same- and opposite-handed hitters, the mean Shape+ is (obviously) 100, while the median is a tick lower at 99. 
 
 
 
