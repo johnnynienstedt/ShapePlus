@@ -61,24 +61,24 @@ Originally I had not separated platoon matchups in the training of the model, so
 My next step is to run correlations of Shape+ to ERA, FIP, and other such metrics, and compare them to other similar pitch grading models. Remember, the goal is not to create a hugely predictive model on its own; the goal is to create a model that does its one job (grading pitch shapes) very well. Combining it will grades for command, repertoire, and deception will hopefully create a truly precdictive model.
 
 According to the current iteration of the model, the individual pitches with the best shape are:
-  - To same-handed hitters: German Marquez's gyro slider with a 137 Shape+, or 3.7 standard deviations above the mean.
-  - To opposite-handed hitters: Luke Jackson's gyro slider with a 133 Shape+, or 3.3 standard deviations above the mean.
+  - To same-handed hitters: Cristopher Sanchez's velo-based changeup with a 138 Shape+, or 3.8 standard deviations above the mean.
+  - To opposite-handed hitters: Luke Jackson's gyro slider with a 131 Shape+, or 3.1 standard deviations above the mean.
 
 And the pitches with the worst shape are:
-  - To same-handed hitters: Miguel Diaz's riding fastball with a 69 Shape+, or 3.1 standard deviations below the mean.
-  - To opposite-handed hitters: Julio Teheran's twwo-plane slider with a 76 Shape+, or 2.4 standard deviations below the mean.
+  - To same-handed hitters: Drew Smyly's sinker with a 78 Shape+, or 2.2 standard deviations below the mean.
+  - To opposite-handed hitters: Patrick Corbin's fastball with a 79 Shape+, or 2.4 standard deviations below the mean.
 
 As for pitchers as a whole, the owners of highest grading repertoires are:
-  - To same-handed hitters: Devin Williams, 122 Shape+
-  - To opposite-handed hitters: Luke Jackson, 118 Shape+
+  - To same-handed hitters: Cristopher Sanchez, 120 Shape+
+  - To opposite-handed hitters: Luke Jackson, 117 Shape+
 
 And the lowest grading repertoires:
   - To same-handed hitters: Zach Plesac, 84 Shape+
-  - To opposite-handed hitters: Kolby Allard, 89 Shape+
+  - To opposite-handed hitters: Joey Lucchesi, 87 Shape+
 
 We can already see a few interesting trends here. First, the grading of a pitcher's repertoire is much more conservative than the grading of indivisual pitches. This is because the scaling process occurs at the pitcher-pitch level. So, when looking at Devin Williams' changeup and its 131 Shape+ vs righties, we can say that it grades out roughly three standard deviations above the 'average pitch.' When we look at his entire repertoire, we see that he has a 122 Shape+ vs righites, so we might be tempted to say that his repertoire grades out as 2.2 standard deviations above the 'average pitcher.' However, this is false; since no pitcher throws his best pitch (or his worst one) every single time, the grades tend to 'compress' towards 100 for full pithcer repertoires. I am debating whether to re-scale on the pitcher-level, to resolve this issue.
 
-The second notable trend is that the best pitches and pitchers are rated more positively than the worst are rated negatively. The two best pitches are rated an average of 3.5 standard deviations above the mean, while the two worst are rated an average of just 2.75 standard deviations below the mean. This implies that we have a positive skew to the data - that is, that the median Shape+ is lower than the mean, and that the mean is dragged upwards due to some truly exceptional pitches. In fact, the median of the Shape+ distribution is 99, confirming positive skew.
+The second notable trend is that the best pitches and pitchers are rated more positively than the worst are rated negatively. The two best pitches are rated an average of 3.5 standard deviations above the mean, while the two worst are rated an average of just 2.2 standard deviations below the mean. This implies that we have a positive skew to the data - that is, that the median Shape+ is lower than the mean, and that the mean is dragged upwards due to some truly exceptional pitches. In fact, the median of the Shape+ distribution is 99, confirming positive skew.
 
 Finally, we can see some differences between grades for pitches to same-handed and opposite-handed batters. A quick analysis of the data shows that (as expected) pitches to same-handed batters grade out better on the whole than those to opposite-handed batters. These grades are based on empirical results, and since pitchers generally produce better results against same-handed hitters, the grades reflect that: the average Shape+ in platoon advantages is 101.4, versus 98.7 in platoon disadvantages. However, there is also more variance in pitches to same-handed batters: the standard deviation of Shape+ in platoon advantages is 10.1, versus 9.7 in platoon disadvantages.
 
