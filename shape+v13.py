@@ -28,16 +28,18 @@ Created on Sat Jul 27 10:12:18 2024
     # back to my HAA
     # test all outcomes
     # added pitcher-level correlations
+    # replaced AB% with FB% (since LD and PU are not predictable)
     
     
 import pybaseball
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 import xgboost as xgb
 import scipy.stats as stats
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from IPython import get_ipython
+from matplotlib.ticker import FuncFormatter
 from sklearn.model_selection import train_test_split
 
 
@@ -55,8 +57,13 @@ necessary_cols = ['release_speed', 'pfx_x', 'pfx_z', 'vx0', 'vy0', 'vz0', 'ax',
                   'ay', 'az', 'release_pos_x', 'release_pos_y', 'release_pos_z', 
                   'release_extension']
 
-clean_pitch_data = all_pitch_data.copy().drop(columns = drop_cols)
-clean_pitch_data = clean_pitch_data.dropna(subset = necessary_cols)
+for col in drop_cols:
+    try:
+        all_pitch_data.drop(columns = [col], inplace=True)
+    except KeyError:
+        pass
+        
+clean_pitch_data = all_pitch_data.dropna(subset = necessary_cols).copy()
 clean_pitch_data['pfx_x'] = np.round(clean_pitch_data['pfx_x']*12)
 clean_pitch_data['pfx_z'] = np.round(clean_pitch_data['pfx_z']*12)
 
@@ -66,7 +73,6 @@ pitcher_pitch_data = clean_pitch_data.groupby('pitcher').filter(lambda x: len(x)
 # flip axis for RHP so that +HB = arm side, -HB = glove side
 mirror_cols = ['release_pos_x', 'plate_x', 'pfx_x', 'vx0', 'ax']
 pitcher_pitch_data.loc[pitcher_pitch_data['p_throws'] == 'R', mirror_cols] = -pitcher_pitch_data.loc[pitcher_pitch_data['p_throws'] == 'R', mirror_cols]
-
 
 
 
@@ -108,14 +114,39 @@ theta_xf = -np.arctan(vxf/vyf)*180/np.pi
 pitcher_pitch_data['VAA'] = round(theta_zf, 2)
 pitcher_pitch_data['HAA'] = round(theta_xf, 2)
 
+# my calculations of VAA and HAA
+zf = pitcher_pitch_data['plate_z']
+delta_z = rz - zf
+delta_y = ry - yf
+phi_z = -np.arctan(delta_z/delta_y)*180/np.pi
 
 xf = pitcher_pitch_data['plate_x']
 delta_x = rx - xf
-delta_y = y0 - yf
-phi = -np.arctan(delta_x/delta_y)
+phi_x = -np.arctan(delta_x/delta_y)*180/np.pi
 
-pitcher_pitch_data['my_HAA'] = round(theta_x0 + phi, 2)
+pitcher_pitch_data.insert(89, 'my_VAA', round(2*phi_z - theta_z0, 2))
+pitcher_pitch_data.insert(91, 'my_HAA', round(2*phi_x - theta_x0, 2))
 
+delta = []
+for v in range(75,102):
+    VAA = pitcher_pitch_data[
+        (pitcher_pitch_data['release_speed'] > v - 0.5) &
+        (pitcher_pitch_data['release_speed'] < v + 0.5)]['VAA'].mean()
+    my_VAA = pitcher_pitch_data[
+        (pitcher_pitch_data['release_speed'] > v - 0.5) &
+        (pitcher_pitch_data['release_speed'] < v + 0.5)
+    ]['my_VAA'].mean()
+    delta.append(VAA - my_VAA)
+    
+model = np.poly1d(np.polyfit(np.arange(75,102), delta, 2))
+
+velo_correction = model[0] + model[1]*velo + model[2]*velo**2
+geom_VAA = 2*phi_z - theta_z0 + velo_correction
+geom_HAA = 2*phi_x - theta_x0 + velo_correction
+
+pitcher_pitch_data.drop(columns=['my_VAA', 'my_HAA'], inplace=True)
+pitcher_pitch_data.insert(89, 'geom_VAA', round(geom_VAA, 2))
+pitcher_pitch_data.insert(91, 'geom_HAA', round(geom_HAA, 2))
 
 # total break angle
 delta_theta_z = theta_z0 - theta_zf
@@ -124,13 +155,10 @@ delta_theta = np.sqrt(delta_theta_z**2 + delta_theta_x**2)
 pitcher_pitch_data['break_angle'] = round(delta_theta, 2)
 
 # sharpness of break
-eff_t = (ry - yf)/velo
-sharpness = delta_theta/eff_t
+eff_t = delta_y/velo
+iVB = pitcher_pitch_data['pfx_z']
+sharpness = np.abs(iVB/eff_t)
 pitcher_pitch_data['sharpness'] = round(sharpness, 2)
-
-
-# maybe introduce some sanity checks here? In terms of pitch break vs location,
-# making sure everythin adds up.
 
 
 
@@ -142,20 +170,24 @@ pitcher_pitch_data['sharpness'] = round(sharpness, 2)
 ###############################################################################
 '''
 
+outcomes = ['swstr', 'gb', 'fb']
+
 # run value of a...
 swstr_rv = 0.116
 gb_rv = 0.058
-ab_rv = -0.141
+fb_rv = -0.107
 
-outcomes = ['swstr', 'gb', 'ab']
-
+# assign binary values for outcomes of interest
 swstr_types = ['swinging_strike_blocked', 'swinging_strike', 'foul_tip']
-
-# assign values for each outcome
+swing_tpyes = swstr_types + ['foul', 'hit_into_play']
+strike_zones = np.arange(1,10)
+pitcher_pitch_data['zone_value'] = pitcher_pitch_data['zone'].isin(strike_zones).astype(int)
+pitcher_pitch_data['swing_value'] = pitcher_pitch_data['description'].isin(swing_tpyes).astype(int)
 pitcher_pitch_data['swstr_value'] = pitcher_pitch_data['description'].isin(swstr_types).astype(int)
+pitcher_pitch_data['bip_value'] = (pitcher_pitch_data['description'] == 'hit_into_play').astype(int)
 pitcher_pitch_data['gb_value'] = (pitcher_pitch_data['bb_type'] == 'ground_ball').astype(int)
-pitcher_pitch_data['ab_value'] = ((pitcher_pitch_data['description'] == 'hit_into_play') & 
-                                  (pitcher_pitch_data['bb_type'] != 'ground_ball')).astype(int)
+pitcher_pitch_data['fb_value'] = ((pitcher_pitch_data['description'] == 'hit_into_play') & 
+                                  (pitcher_pitch_data['bb_type'] == 'fly_ball')).astype(int)
 
 
 
@@ -237,8 +269,15 @@ def get_repertoire(pitcher, year = 'all'):
     pitch_type_group = df.groupby('pitch_type')
     for pitch_type, group in pitch_type_group:
         pitch_shape = np.array([group.pfx_x.mean(), group.pfx_z.mean(), group.release_speed.mean()])
-        sh_percent = (group.stand == group.p_throws).sum() / round(platoon_percent/100*n) * 100
-        oh_percent = (group.stand != group.p_throws).sum() / round((100 - platoon_percent)/100*n) * 100
+        if platoon_percent == 0:
+            sh_percent = 0
+            oh_percent  = 100
+        elif platoon_percent == 100:
+            sh_percent = 100
+            oh_percent  = 0
+        else:
+            sh_percent = (group.stand == group.p_throws).sum() / round(platoon_percent/100*n) * 100
+            oh_percent = (group.stand != group.p_throws).sum() / round((100 - platoon_percent)/100*n) * 100
     
         if pitch_type == 'KN':
             pitch_name = 'Knuckleball'
@@ -281,8 +320,8 @@ for pitcher in tqdm(pitcher_pitch_data.player_name.unique()):
 '''
 
 # columns of interest
-x_cols = ['release_speed', 'pfx_x', 'pfx_z', 'release_extension', 'VAA', 'my_HAA']
-y_cols = ['swstr_value', 'gb_value', 'ab_value']
+x_cols = ['release_speed', 'release_extension', 'pfx_x', 'pfx_z', 'VAA', 'HAA',]
+y_cols = ['swstr_value', 'gb_value', 'fb_value']
 display_cols = ['player_name'] + x_cols + y_cols
 
 # pitch names
@@ -390,7 +429,7 @@ for outcome in outcomes:
     oh_all_results[outcome] = pd.Series(xgb_model.predict(eval_X))
 
 
-
+# plt.bar(x_cols, sh_models_dict['swstr'].feature_importances_)
 
 
 
@@ -420,8 +459,8 @@ all_shape_grades = pd.concat([sh_shape_grades, oh_shape_grades])
 cutoff = len(sh_shape_grades)
 swstr_rate = all_shape_grades.swstr
 gb_rate = all_shape_grades.gb
-ab_rate = all_shape_grades.ab
-xRV = swstr_rv*swstr_rate + gb_rv*gb_rate + ab_rv*ab_rate
+fb_rate = all_shape_grades.fb
+xRV = swstr_rv*swstr_rate + gb_rv*gb_rate + fb_rv*fb_rate
 xRV_mean = xRV.mean()
 xRV_std = xRV.std()
 norm_grades = ((xRV - xRV_mean)/xRV_std + 10)*10
@@ -444,7 +483,7 @@ def grade_pitch(shape):
         probabilities.loc[0, outcome] = sh_model.predict(shape_df)[0]
         probabilities.loc[1, outcome] = oh_model.predict(shape_df)[0]
     
-    xRV = probabilities.swstr*swstr_rv + probabilities.gb*gb_rv + probabilities.ab*ab_rv
+    xRV = probabilities.swstr*swstr_rv + probabilities.gb*gb_rv + probabilities.fb*fb_rv
     
     grades = ((xRV - xRV_mean)/xRV_std + 10)*10
     
@@ -468,7 +507,7 @@ def grade_repertoire(pitcher, verbose = True, backend = 'qt'):
     
     
     # get all pitches from this year
-    df = classified_pitch_data.copy().query('player_name == @pitcher and game_year == 2024')
+    df = classified_pitch_data.copy().query('player_name == @pitcher and game_year == 2024', engine='python')
     
     # pitcher first and last name
     pfirst = pitcher.split(', ')[1]
@@ -536,8 +575,9 @@ def grade_repertoire(pitcher, verbose = True, backend = 'qt'):
         velo = list(df.release_speed)
         
         # make plot
-        fig = plt.figure()
+        fig = plt.figure(figsize=(10,7))
         ax = fig.add_subplot(111, projection='3d')
+        plt.subplots_adjust(left=0.05, right=0.95, top=1, bottom=0.05)
         ax.scatter(HB, iVB, velo, c=df.color)
         
         # make legend handles and labels
@@ -556,20 +596,16 @@ def grade_repertoire(pitcher, verbose = True, backend = 'qt'):
         sorted_handles, sorted_labels = zip(*sorted_handles_labels)
         
         # make legend
-        legend = ax.legend(sorted_handles, sorted_labels, loc='center left', bbox_to_anchor=(-0.35, 0.65))
+        legend = ax.legend(sorted_handles, sorted_labels, loc='center left', bbox_to_anchor=(-0.2, 0.6), fontsize = 15)
         ax.add_artist(legend)
         
-        # plot archeypes
-        # ax.scatter(pitch_archetypes[:,0], pitch_archetypes[:,1], pitch_archetypes[:,2], color = 'red')
-        
-        
         # set title
-        ax.set_title('2024 Pitch Repertoire -- ' + pfirst + ' ' + plast)
-        
-        ax.text(35, -20, 70, "Data courtesy Baseball Savant", color='k', fontsize = 7.5)
-        ax.set_xlabel('HB')
-        ax.set_ylabel('iVB')
-        ax.set_zlabel('Velo')
+        fig.suptitle('2024 Pitch Repertoire -- ' + pfirst + ' ' + plast, fontsize=20)
+        ax.text(30, -20, 70, "Data courtesy Baseball Savant", color='k', fontsize = 12)
+        ax.set_xlabel('HB', fontsize=15)
+        ax.set_ylabel('iVB', fontsize=15)
+        ax.set_zlabel('Velo', fontsize=15)
+        ax.tick_params(axis='both', which='major', labelsize=12)
         ax.set_xlim((-20,20))
         ax.set_ylim((-20,20))
         ax.set_zlim((70,100))
@@ -608,8 +644,8 @@ def grade_repertoire(pitcher, verbose = True, backend = 'qt'):
         repertoire.loc[repertoire.pitch_type == pitch, 'iVB'] = round(iVB)
         repertoire.loc[repertoire.pitch_type == pitch, 'Velo'] = round(velo, 1)
         
-        sh_percent = classified_pitch_data.query('player_name == @pitcher and game_year == 2024 and true_pitch_type == @pitch')['sh_percent'].iloc[0]
-        oh_percent = classified_pitch_data.query('player_name == @pitcher and game_year == 2024 and true_pitch_type == @pitch')['oh_percent'].iloc[0]
+        sh_percent = classified_pitch_data.query('player_name == @pitcher and game_year == 2024 and true_pitch_type == @pitch', engine='python')['sh_percent'].iloc[0]
+        oh_percent = classified_pitch_data.query('player_name == @pitcher and game_year == 2024 and true_pitch_type == @pitch', engine='python')['oh_percent'].iloc[0]
 
         if hand == 'R':
             repertoire.loc[repertoire.pitch_type == pitch, 'Usage_RHB'] = sh_percent
@@ -649,45 +685,45 @@ def grade_repertoire(pitcher, verbose = True, backend = 'qt'):
 
 
     print()
-    print(pfirst, plast, '- 2024')
+    print(pfirst, plast, '(' + hand + 'HP) - 2024')
     print()
     print(repertoire.to_string(index=False))
     print()
     print('Total Shape+:', total_shape)
     
     
-grade_repertoire('Waldron, Matt', verbose=True)
+grade_repertoire('Estrada, Jeremiah', verbose=True)
 
     
 # calculate aggregate grades for pitchers
 sh_shape_grades['weighted_grade'] = sh_shape_grades['Shape+'] * sh_shape_grades['percent']
 sh_shape_grades['weighted_swstr'] = sh_shape_grades['swstr'] * sh_shape_grades['percent']
 sh_shape_grades['weighted_gb'] = sh_shape_grades['gb'] * sh_shape_grades['percent']
-sh_shape_grades['weighted_ab'] = sh_shape_grades['ab'] * sh_shape_grades['percent']
+sh_shape_grades['weighted_fb'] = sh_shape_grades['fb'] * sh_shape_grades['percent']
 
 sh_pitcher_grades = sh_shape_grades.groupby('player_name').apply(
     lambda x: pd.Series({
         'aggregate_grade': round(x['weighted_grade'].sum() / x['percent'].sum(), 1),
         'aggregate_swstr': round(x['weighted_swstr'].sum() * 100 / x['percent'].sum(), 1),
         'aggregate_gb': round(x['weighted_gb'].sum() * 100 / x['percent'].sum(), 1),
-        'aggregate_ab': round(x['weighted_ab'].sum() * 100 / x['percent'].sum(), 1)
+        'aggregate_fb': round(x['weighted_fb'].sum() * 100 / x['percent'].sum(), 1)
     })).reset_index()
 
-sh_pitcher_grades['platoon_percent'] = round(sh_pitcher_grades.apply(lambda x: classified_pitch_data.query('player_name == @x.player_name and game_year == 2024')['platoon_percent'].iloc[0], axis = 1), 3)
+sh_pitcher_grades['platoon_percent'] = round(sh_pitcher_grades.apply(lambda x: classified_pitch_data.query('player_name == @x.player_name and game_year == 2024', engine='python')['platoon_percent'].iloc[0], axis = 1), 3)
 
 sh_pitcher_grades = sh_pitcher_grades.sort_values(by='aggregate_grade', ascending=False)
 
 oh_shape_grades['weighted_grade'] = oh_shape_grades['Shape+'] * oh_shape_grades['percent']
 oh_shape_grades['weighted_swstr'] = oh_shape_grades['swstr'] * oh_shape_grades['percent']
 oh_shape_grades['weighted_gb'] = oh_shape_grades['gb'] * oh_shape_grades['percent']
-oh_shape_grades['weighted_ab'] = oh_shape_grades['ab'] * oh_shape_grades['percent']
+oh_shape_grades['weighted_fb'] = oh_shape_grades['fb'] * oh_shape_grades['percent']
 
 oh_pitcher_grades = oh_shape_grades.groupby('player_name').apply(
     lambda x: pd.Series({
         'aggregate_grade': round(x['weighted_grade'].sum() / x['percent'].sum(), 1),
         'aggregate_swstr': round(x['weighted_swstr'].sum() * 100 / x['percent'].sum(), 1),
         'aggregate_gb': round(x['weighted_gb'].sum() * 100 / x['percent'].sum(), 1),
-        'aggregate_ab': round(x['weighted_ab'].sum() * 100 / x['percent'].sum(), 1)
+        'aggregate_fb': round(x['weighted_fb'].sum() * 100 / x['percent'].sum(), 1)
     })).reset_index()
 oh_pitcher_grades = oh_pitcher_grades.sort_values(by='aggregate_grade', ascending=False)
 
@@ -719,13 +755,13 @@ merged_grades['Predicted_SwStr%'] = round((
 merged_grades['Predicted_GB%'] = round((
     merged_grades['aggregate_gb_sh'] * merged_grades['platoon_percent'] +
     merged_grades['aggregate_gb_oh'] * (100 - merged_grades['platoon_percent']))/100, 1)
-merged_grades['Predicted_Air%'] = round((
-    merged_grades['aggregate_ab_sh'] * merged_grades['platoon_percent'] +
-    merged_grades['aggregate_ab_oh'] * (100 - merged_grades['platoon_percent']))/100, 1)
+merged_grades['Predicted_FB%'] = round((
+    merged_grades['aggregate_fb_sh'] * merged_grades['platoon_percent'] +
+    merged_grades['aggregate_fb_oh'] * (100 - merged_grades['platoon_percent']))/100, 1)
 
 
 # create final pitcher_grades DataFrame
-pitcher_grades = merged_grades[['player_name', 'Shape+', 'Predicted_SwStr%', 'Predicted_GB%', 'Predicted_Air%']].copy()
+pitcher_grades = merged_grades[['player_name', 'Shape+', 'Predicted_SwStr%', 'Predicted_GB%', 'Predicted_FB%']].copy()
 pitcher_grades['player_name'] = pitcher_grades['player_name'].str.split(',').apply(lambda x: x[1].strip() + ' ' + x[0].strip())
 
 
@@ -756,12 +792,12 @@ def pitcher_pitch_correlations(ind_colname, dep_colname, h='s'):
         y = oh_shape_corr[dep_colname]
     
     name_dict = {
-                'swstr': 'Predicted SWSTR%',
-                'swstr_value': 'Actual SWSTR%',
+                'swstr': 'Predicted SwStr%',
+                'swstr_value': 'Actual SwStr%',
                 'gb': 'Predicted GB%',
                 'gb_value': 'Actual GB%',
-                'ab': 'Predicted AB%',
-                'ab_value': 'Actual AB%',
+                'fb': 'Predicted FB%',
+                'fb_value': 'Actual FB%',
                 
                 }
     
@@ -775,7 +811,7 @@ def pitcher_pitch_correlations(ind_colname, dep_colname, h='s'):
     ax.scatter(x, y, s=3)
     ax.plot(x, m*x+b, '--k')
     ax.set_title(xname + ' vs. ' + yname)
-    ax.set_xlabel(xname)
+    ax.set_xlabel(xname + ' (Pitcher Pitch Type Level)')
     ax.set_ylabel(yname)
     
     # ax.set_aspect('equal', adjustable='box')
@@ -787,7 +823,9 @@ def pitcher_pitch_correlations(ind_colname, dep_colname, h='s'):
     plt.show()
     
     
-    
+pitcher_pitch_correlations('swstr', 'swstr_value')
+pitcher_pitch_correlations('gb', 'gb_value')
+pitcher_pitch_correlations('fb', 'fb_value')
     
     
     
@@ -797,18 +835,17 @@ def pitcher_pitch_correlations(ind_colname, dep_colname, h='s'):
 ###############################################################################
 '''
     
-pitcher_results = pybaseball.pitching_stats(2024, qual = 1, ind = 1)
-pitcher_results = pitcher_results[pitcher_results.Pitches > 100].reset_index(drop=True)
+pitcher_results_24 = pybaseball.pitching_stats(2024, qual = 1, ind = 1)
 
 # pitcher_results.insert(1, 'pitcher', pybaseball.playerid_reverse_lookup(pitcher_results.IDfg, key_type='fangraphs').key_mlbam)
 # pitcher_results['pitcher'] = pitcher_results.groupby('Name')['pitcher'].transform(lambda x: x.ffill().bfill())
 
-pitcher_results = pd.merge(pitcher_grades, pitcher_results, left_on='player_name', right_on='Name', how='inner')
+pitcher_results_24 = pd.merge(pitcher_grades, pitcher_results_24, left_on='player_name', right_on='Name', how='inner')
 
 
-def pitcher_correlations(ind_colname, dep_colname, q=1000):
+def pitcher_correlations(ind_colname, dep_colname, q=400):
         
-    filtered_results = pitcher_results[pitcher_results.Pitches > q]
+    filtered_results = pitcher_results_24[pitcher_results_24.Pitches > q]
     
     ipython = get_ipython()
     ipython.run_line_magic('matplotlib', 'inline')
@@ -823,7 +860,7 @@ def pitcher_correlations(ind_colname, dep_colname, q=1000):
     ax.scatter(x, y, s=3)
     ax.plot(x, m*x+b, '--k')
     ax.set_title('2024 ' + ind_colname + ' vs. ' + dep_colname + ' (min. ' + str(q) + ' pitches)')
-    ax.set_xlabel(ind_colname)
+    ax.set_xlabel(ind_colname + ' (Pitcher Level)')
     ax.set_ylabel(dep_colname)
     
     # ax.set_aspect('equal', adjustable='box')
@@ -833,9 +870,94 @@ def pitcher_correlations(ind_colname, dep_colname, q=1000):
     ax.text(left, top, '$R^2$ = ' + str(round(r**2, 2)))
     
     plt.show()
-   
+
+    
+pitcher_correlations('Predicted_SwStr%', 'SwStr%', q=400)
+pitcher_correlations('Predicted_GB%', 'GB%', q=400)
+pitcher_correlations('Predicted_FB%', 'FB%', q=400)
+
+pitcher_correlations('Shape+', 'SIERA', q=1000)
+
+
+
+'''
+###############################################################################
+########################## Pitcher-Level Stickiness ###########################
+###############################################################################
+'''
+
+pitcher_results = pybaseball.pitching_stats(2021, 2024, qual = 1, ind = 1)
+pitcher_results.sort_values(by = ['IDfg', 'Season'], inplace=True)
+pitcher_results['Whiff%'] = pitcher_results['SwStr%']/pitcher_results['Swing%']
+pitcher_results['Whiff% (sc)'] = pitcher_results['SwStr%']/pitcher_results['Swing% (sc)']
+
+
+# Stickiness year over year
+def yoy(colname, q=400):
+    
+    filtered_results = pitcher_results[pitcher_results.Pitches > q].reset_index()
+    filtered_results.dropna(subset = [colname])
+
+    rows = []
+    for i in range(len(filtered_results) - 1):
+        if filtered_results['IDfg'][i + 1] == filtered_results['IDfg'][i]:
+            c1 = filtered_results[colname][i]
+            c2 = filtered_results[colname][i + 1]
+            c3 = filtered_results['Pitches'][i]
+            rows.append({'Year1': c1,
+                         'Year2': c2,
+                         'N_P': c3})
+            
+            
+    pairs = pd.DataFrame(rows)
     
     
+    # make plot
+    x = pairs.Year1
+    y = pairs.Year2
+    
+    m, b, r, p, std_err = stats.linregress(x, y)
+    
+    fig, ax = plt.subplots()
+    plt.scatter(x, y, s=3)
+    plt.plot(x, m*x+b, '--k')
+    ax.set_title(colname + " YOY (Pitcher Level, min. " + str(q) + " Pitches Per Season)")
+    ax.set_xlabel('Year 1 ' + colname)
+    ax.set_ylabel('Year 2 ' + colname)
+        
+    # text
+    y_limits = ax.get_ylim()
+    bot = y_limits[0] + 0.1*(y_limits[1] - y_limits[0])
+    top = y_limits[1] - 0.1*(y_limits[1] - y_limits[0])
+    x_limits = ax.get_xlim()
+    left = x_limits[0] + 0.1*(x_limits[1] - x_limits[0])
+    right = x_limits[1] - 0.1*(x_limits[1] - x_limits[0])
+    
+    if r > 0:
+        ax.text(left, top, '$R^2$ = ' + str(round(r**2, 2)), ha='left', va='center', fontsize=10)
+    else:
+        ax.text(right, top, '$R^2$ = ' + str(round(r**2, 2)), ha='right', va='center', fontsize=10)
+    
+    ax.text((left + right)/2, bot, 'Data via Baseball Savant 2021-2024', ha='center', va='top', fontsize=8)
+    
+    # percent if necessary
+    if '%' in colname:
+        if (y.max() - y.min()) > 0.1:
+            plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{100*y:.0f}%'))
+            plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{100*x:.0f}%'))
+        else:
+            plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{100*y:.1f}%'))
+            plt.gca().xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{100*x:.1f}%'))
+    
+    plt.show()
+
+    return pairs
+
+pairs = yoy('Whiff%', q=1000)
+
+
+
+# next steps:
 
 # def compare_pitchers(pitcher_list):
-
+# run values from each outcome pls
